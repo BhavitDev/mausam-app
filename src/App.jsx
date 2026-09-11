@@ -145,7 +145,7 @@ async function searchOpenRouteLocations(query, signal, count = 5) {
 			? `${query} Temple`
 			: query;
 	const response = await fetch(
-		`https://api.openrouteservice.org/geocode/search?api_key=${encodeURIComponent(apiKey)}&text=${encodeURIComponent(searchText)}&boundary.country=IND&size=${count}`,
+		`https://api.heigit.org/pelias/v1/search?api_key=${encodeURIComponent(apiKey)}&text=${encodeURIComponent(searchText)}&boundary.country=IND&size=${count}`,
 		{ signal },
 	);
 	if (!response.ok) throw new Error("OpenRouteService geocoding failed");
@@ -231,7 +231,7 @@ function OpenRouteMap({ route }) {
 				origin.bindTooltip(routeOrigin);
 				destination.bindTooltip(routeDestination);
 				return fetch(
-					"https://api.openrouteservice.org/v2/directions/driving-car/geojson",
+					"https://api.heigit.org/openrouteservice/v2/directions/driving-car/geojson",
 					{
 						method: "POST",
 						signal: controller.signal,
