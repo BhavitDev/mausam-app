@@ -4,6 +4,7 @@ import "leaflet/dist/leaflet.css";
 import {
 	Activity,
 	Bell,
+	CarFront,
 	ChevronRight,
 	CloudRain,
 	CloudSun,
@@ -16,6 +17,7 @@ import {
 	Pencil,
 	Plus,
 	Route,
+	RefreshCw,
 	Settings2,
 	Sun,
 	Trash2,
@@ -31,11 +33,6 @@ const WEATHER_LOCATIONS = {
 	Office: { latitude: 12.9352, longitude: 77.6245 },
 };
 
-const ROUTE_POINTS = {
-	origin: [12.9784, 77.6408],
-	destination: [12.9352, 77.6245],
-};
-
 const ACTIVITY_OPTIONS = [
 	"Running",
 	"Gardening",
@@ -45,6 +42,8 @@ const ACTIVITY_OPTIONS = [
 	"Exercise",
 	"Cycling",
 	"Sports",
+	"School pickup",
+	"Surfing",
 ];
 
 function weatherIconForCode(code) {
@@ -92,6 +91,8 @@ function getBestActivityWindow(activity, hourlyForecast) {
 		Exercise: [14, 28],
 		Cycling: [14, 27],
 		Sports: [16, 29],
+		"School pickup": [18, 30],
+		Surfing: [20, 28],
 	}[activity] || [16, 29];
 	const activeHours = {
 		Running: [5, 22],
@@ -102,6 +103,8 @@ function getBestActivityWindow(activity, hourlyForecast) {
 		Exercise: [5, 22],
 		Cycling: [5, 20],
 		Sports: [6, 22],
+		"School pickup": [7, 17],
+		Surfing: [6, 18],
 	}[activity] || [6, 22];
 	const scored = hourlyForecast.map((hour) => {
 		const midpoint = (idealTemperature[0] + idealTemperature[1]) / 2;
@@ -112,6 +115,17 @@ function getBestActivityWindow(activity, hourlyForecast) {
 		)
 			score -= 18;
 		score -= hour.precipitationProbability * 0.8;
+		if (activity === "School pickup") {
+			score -= hour.precipitationProbability * 0.6;
+			if (hour.precipitationProbability >= 45) score -= 18;
+			if (hour.wind > 20) score -= (hour.wind - 20) * 1.5;
+		}
+		if (activity === "Surfing") {
+			score -= hour.precipitationProbability * 1.1;
+			if (hour.wind > 18) score -= (hour.wind - 18) * 2.5;
+			if (hour.wind >= 7 && hour.wind <= 18) score += 12;
+			if (hour.code >= 51 && hour.code <= 67) score -= 30;
+		}
 		if (hour.code >= 51) score -= 20;
 		if (hour.code >= 80 || hour.code >= 95) score -= 25;
 		if (hour.wind > 22) score -= (hour.wind - 22) * 2;
@@ -121,6 +135,51 @@ function getBestActivityWindow(activity, hourlyForecast) {
 		return { hour, score };
 	});
 	return scored.sort((left, right) => right.score - left.score)[0].hour;
+}
+
+function getActivitySuitability(activity, weather) {
+	const hour = weather?.hourly?.[0];
+	if (!hour) return null;
+	const idealTemperature = {
+		Running: [14, 27],
+		Gardening: [18, 30],
+		Commuting: [15, 33],
+		Shopping: [18, 32],
+		"Outdoor event": [18, 29],
+		Exercise: [14, 28],
+		Cycling: [14, 27],
+		Sports: [16, 29],
+		"School pickup": [18, 30],
+		Surfing: [20, 28],
+	}[activity] || [16, 29];
+	const [minimumTemperature, maximumTemperature] = idealTemperature;
+	const temperatureScore =
+		hour.temperature >= minimumTemperature &&
+		hour.temperature <= maximumTemperature
+			? 40
+			: Math.max(
+					0,
+					40 -
+						Math.min(
+							Math.abs(hour.temperature - minimumTemperature),
+							Math.abs(hour.temperature - maximumTemperature),
+						) *
+							4,
+				);
+	const rainScore = Math.max(0, 30 - hour.precipitationProbability * 0.3);
+	const windScore = Math.max(0, 20 - Math.max(0, hour.wind - 12));
+	const conditionScore =
+		hour.code >= 95 ? 0 : hour.code >= 51 ? 4 : hour.code >= 3 ? 7 : 10;
+	const score = Math.round(
+		Math.min(100, temperatureScore + rainScore + windScore + conditionScore),
+	);
+	const explanation =
+		score >= 75
+			? "Good temperature, low rain chance."
+			: score >= 50
+				? "Manageable conditions; check rain and wind."
+				: "Weather may make this activity uncomfortable.";
+	return { score, explanation };
 }
 
 function formatDate(time) {
@@ -135,6 +194,59 @@ function formatForecastDay(time) {
 	return new Intl.DateTimeFormat("en-IN", { weekday: "short" }).format(
 		new Date(`${time}T12:00:00`),
 	);
+}
+
+function weatherCodeFromWttr(code) {
+	const numericCode = Number(code);
+	if (numericCode === 113) return 0;
+	if (numericCode === 116) return 2;
+	if (numericCode === 119 || numericCode === 122) return 3;
+	if (numericCode >= 176 && numericCode <= 293) return 61;
+	if (numericCode >= 386) return 95;
+	return 3;
+}
+
+function weatherFromWttr(data) {
+	const current = data.current_condition?.[0];
+	const days = data.weather || [];
+	if (!current || !days.length) throw new Error("Fallback weather response was incomplete");
+	const now = new Date();
+	const currentTime = now.toISOString().slice(0, 13) + ":00";
+	const hourly = days.flatMap((day) =>
+		(day.hourly || []).map((hour) => ({
+			time: `${day.date}T${String(Number(hour.time) / 100).padStart(2, "0")}:00`,
+			temperature: Number(hour.tempC),
+			precipitationProbability: Number(hour.chanceofrain) || 0,
+			code: weatherCodeFromWttr(hour.weatherCode),
+			wind: Number(hour.windspeedKmph) || 0,
+		})),
+	);
+	const currentHourIndex = Math.max(
+		0,
+		hourly.findIndex((hour) => hour.time >= currentTime),
+	);
+	return {
+		current: {
+			time: currentTime,
+			temperature_2m: Number(current.temp_C),
+			relative_humidity_2m: Number(current.humidity),
+			apparent_temperature: Number(current.FeelsLikeC),
+			precipitation_probability: Number(current.precipMM) > 0 ? 100 : 0,
+			weather_code: weatherCodeFromWttr(current.weatherCode),
+			wind_speed_10m: Number(current.windspeedKmph),
+		},
+		date: formatDate(currentTime),
+		hourly: hourly.slice(currentHourIndex, currentHourIndex + 24),
+		daily: days.map((day) => ({
+			date: day.date,
+			code: weatherCodeFromWttr(day.hourly?.[4]?.weatherCode),
+			max: Number(day.maxtempC),
+			min: Number(day.mintempC),
+			rain: Math.max(
+				...(day.hourly || []).map((hour) => Number(hour.chanceofrain) || 0),
+			),
+		})),
+	};
 }
 
 async function searchOpenRouteLocations(query, signal, count = 5) {
@@ -299,6 +411,155 @@ function OpenRouteMap({ route }) {
 	);
 }
 
+function TrafficUpdates({ route }) {
+	const [state, setState] = useState("loading");
+	const [traffic, setTraffic] = useState(null);
+	const [lastUpdated, setLastUpdated] = useState(null);
+	const [retryToken, setRetryToken] = useState(0);
+	const apiKey = import.meta.env.VITE_TOMTOM_API_KEY;
+
+	useEffect(() => {
+		const controller = new AbortController();
+		let refreshTimer;
+		const loadTraffic = async () => {
+			if (!apiKey) {
+				setState("missing-key");
+				return;
+			}
+			setState("loading");
+			try {
+				const resolvePoint = async (query, coordinates) => {
+					if (coordinates) return coordinates;
+					return (
+						await searchOpenRouteLocations(
+							query,
+							controller.signal,
+							1,
+						)
+					)[0];
+				};
+				const [origin, destination] = await Promise.all([
+					resolvePoint(route.origin, route.originCoordinates),
+					resolvePoint(
+						route.destination,
+						route.destinationCoordinates,
+					),
+				]);
+				if (!origin || !destination)
+					throw new Error("Traffic locations not found");
+				const midpoint = {
+					latitude: (origin.latitude + destination.latitude) / 2,
+					longitude: (origin.longitude + destination.longitude) / 2,
+				};
+				const response = await fetch(
+					`https://api.tomtom.com/traffic/services/4/flowSegmentData/absolute/10/json?point=${midpoint.latitude},${midpoint.longitude}&unit=KMPH&openLr=false&key=${encodeURIComponent(apiKey)}`,
+					{ signal: controller.signal },
+				);
+				if (!response.ok) throw new Error("Traffic request failed");
+				const data = await response.json();
+				const flow = data.flowSegmentData;
+				if (
+					typeof flow?.currentSpeed !== "number" ||
+					typeof flow?.freeFlowSpeed !== "number"
+				)
+					throw new Error("Traffic response was incomplete");
+				const delayPercent = Math.max(
+					0,
+					Math.round(
+						(1 - flow.currentSpeed / flow.freeFlowSpeed) * 100,
+					),
+				);
+				const status =
+					delayPercent >= 35
+						? "Heavy"
+						: delayPercent >= 15
+							? "Slowing"
+							: "Moving well";
+				setTraffic({
+					status,
+					delayPercent,
+					currentSpeed: Math.round(flow.currentSpeed),
+					freeFlowSpeed: Math.round(flow.freeFlowSpeed),
+				});
+				setLastUpdated(new Date());
+				setState("ready");
+				refreshTimer = setTimeout(loadTraffic, 5 * 60 * 1000);
+			} catch (error) {
+				if (error.name !== "AbortError") setState("error");
+			}
+		};
+		loadTraffic();
+		return () => {
+			controller.abort();
+			clearTimeout(refreshTimer);
+		};
+	}, [
+		apiKey,
+		retryToken,
+		route?.origin,
+		route?.destination,
+		route?.originCoordinates?.latitude,
+		route?.originCoordinates?.longitude,
+		route?.destinationCoordinates?.latitude,
+		route?.destinationCoordinates?.longitude,
+	]);
+
+	const statusClass =
+		traffic?.status === "Heavy"
+			? "traffic-heavy"
+			: traffic?.status === "Slowing"
+				? "traffic-slowing"
+				: "traffic-clear";
+
+	return (
+		<section className={`traffic-updates ${statusClass}`}>
+			<div className="traffic-icon">
+				<CarFront size={19} />
+			</div>
+			<div className="traffic-copy">
+				<span className="section-kicker">LIVE TRAFFIC · {route.name}</span>
+				{state === "ready" && traffic && (
+					<>
+						<strong>{traffic.status}</strong>
+						<p>
+							{traffic.currentSpeed} km/h · {traffic.delayPercent}%
+							slower than usual
+						</p>
+					</>
+				)}
+				{state === "loading" && <p>Checking traffic conditions…</p>}
+				{state === "missing-key" && (
+					<p>
+						Add VITE_TOMTOM_API_KEY to show live traffic updates.
+					</p>
+				)}
+				{state === "error" && (
+					<p>Traffic is temporarily unavailable. Try again.</p>
+				)}
+				{lastUpdated && state === "ready" && (
+					<small>
+						Updated{" "}
+						{lastUpdated.toLocaleTimeString([], {
+							hour: "numeric",
+							minute: "2-digit",
+						})}
+					</small>
+				)}
+			</div>
+			{(state === "error" || state === "ready") && (
+				<button
+					className="traffic-refresh"
+					type="button"
+					onClick={() => setRetryToken((token) => token + 1)}
+					aria-label="Refresh traffic updates"
+				>
+					<RefreshCw size={16} />
+				</button>
+			)}
+		</section>
+	);
+}
+
 function App() {
 	const [activeTab, setActiveTab] = useState("home");
 	const [activity, setActivity] = useState(
@@ -317,6 +578,7 @@ function App() {
 	const [isForecastExpanded, setIsForecastExpanded] = useState(false);
 	const [weather, setWeather] = useState(null);
 	const [weatherState, setWeatherState] = useState("loading");
+	const [weatherSource, setWeatherSource] = useState("Open-Meteo");
 	useEffect(
 		() => localStorage.setItem("mausam-activity", activity),
 		[activity],
@@ -333,8 +595,9 @@ function App() {
 		const coordinates = locationCoordinates;
 		const controller = new AbortController();
 		setWeatherState("loading");
+		setWeatherSource("Open-Meteo");
 		fetch(
-			`https://api.open-meteo.com/v1/forecast?latitude=${coordinates.latitude}&longitude=${coordinates.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation_probability,weather_code,wind_speed_10m&hourly=temperature_2m,precipitation_probability,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset&timezone=auto&forecast_days=7`,
+			`https://api.open-meteo.com/v1/forecast?latitude=${coordinates.latitude}&longitude=${coordinates.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&hourly=temperature_2m,precipitation_probability,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset&timezone=auto&forecast_days=7`,
 			{ signal: controller.signal },
 		)
 			.then((response) => {
@@ -349,7 +612,13 @@ function App() {
 					),
 				);
 				setWeather({
-					current: data.current,
+					current: {
+						...data.current,
+						precipitation_probability:
+							data.hourly.precipitation_probability[
+								currentHourIndex
+							],
+					},
 					date: formatDate(data.current.time),
 					hourly: data.hourly.time
 						.slice(currentHourIndex, currentHourIndex + 24)
@@ -380,8 +649,25 @@ function App() {
 				});
 				setWeatherState("ready");
 			})
-			.catch((error) => {
-				if (error.name !== "AbortError") setWeatherState("error");
+			.catch(async (error) => {
+				if (error.name === "AbortError") return;
+				try {
+					const fallbackResponse = await fetch(
+						`https://wttr.in/${coordinates.latitude},${coordinates.longitude}?format=j1`,
+						{ signal: controller.signal },
+					);
+					if (!fallbackResponse.ok)
+						throw new Error("Fallback weather request failed");
+					const fallbackWeather = weatherFromWttr(
+						await fallbackResponse.json(),
+					);
+					setWeather(fallbackWeather);
+					setWeatherSource("wttr.in fallback");
+					setWeatherState("ready");
+				} catch (fallbackError) {
+					if (fallbackError.name !== "AbortError")
+						setWeatherState("error");
+				}
 			});
 		return () => controller.abort();
 	}, [locationCoordinates]);
@@ -459,6 +745,24 @@ function App() {
 			best: "5:00 – 7:00 PM",
 			accent: "coral",
 		},
+		"School pickup": {
+			eyebrow: "PICKUP CONDITIONS",
+			title: "A safe, low-stress window for the school run.",
+			detail: "Clearer roads and lower rain chance make pickup easier, with fewer visibility issues around the school area.",
+			metric: "Good",
+			metricLabel: "visibility",
+			best: "3:00 – 4:30 PM",
+			accent: "blue",
+		},
+		Surfing: {
+			eyebrow: "SURF CONDITIONS",
+			title: "The swell window looks promising for a session.",
+			detail: "Light to moderate wind and a dry spell make this a better time for clean, rideable waves.",
+			metric: "Clean",
+			metricLabel: "waves",
+			best: "7:30 – 9:00 AM",
+			accent: "leaf",
+		},
 	};
 	const current = activityData[activity];
 	const navigate = (tab) => setActiveTab(tab);
@@ -490,6 +794,7 @@ function App() {
 			activity,
 			hourlyForecast,
 		);
+		const activitySuitability = getActivitySuitability(activity, weather);
 		if (activeTab === "routes")
 			return <RoutesView onBack={() => navigate("home")} />;
 		if (activeTab === "locations")
@@ -542,7 +847,7 @@ function App() {
 					</div>
 					<span className="updated">
 						{weatherState === "ready"
-							? "Live · Open-Meteo"
+							? `Live · ${weatherSource}`
 							: weatherState === "loading"
 								? "Loading live weather"
 								: "Live data unavailable"}
@@ -654,37 +959,51 @@ function App() {
 						<span>{current.eyebrow}</span>
 						<Activity size={18} />
 					</div>
+					<div className="suitability-score" aria-live="polite">
+						<strong>
+							{activity} —{" "}
+							{activitySuitability
+								? `${activitySuitability.score}% Suitable`
+								: "Weather unavailable"}
+						</strong>
+						<span>
+							{activitySuitability?.explanation ||
+								"Waiting for the latest weather data."}
+						</span>
+					</div>
 					<div className="insight-status">
 						{current.metric}
 						<small>{current.metricLabel}</small>
 					</div>
 					<p>{current.title}</p>
 					<span className="insight-detail">{current.detail}</span>
-					<button
-						className="best-time"
-						type="button"
-						aria-label="View detailed forecast for the best window"
-						onClick={() => {
-							setIsHourlyExpanded(true);
-							setIsForecastExpanded(false);
-							requestAnimationFrame(() =>
-								document
-									.querySelector(".forecast-section")
-									?.scrollIntoView({
-										behavior: "smooth",
-										block: "start",
-									}),
-							);
-						}}
-					>
-						<span>BEST WINDOW</span>
-						<strong>
-							{bestActivityWindow
-								? formatWindow(bestActivityWindow.time)
-								: current.best}
-						</strong>
-						<ChevronRight size={17} />
-					</button>
+					{activity !== "School pickup" && (
+						<button
+							className="best-time"
+							type="button"
+							aria-label="View detailed forecast for the best window"
+							onClick={() => {
+								setIsHourlyExpanded(true);
+								setIsForecastExpanded(false);
+								requestAnimationFrame(() =>
+									document
+										.querySelector(".forecast-section")
+										?.scrollIntoView({
+											behavior: "smooth",
+											block: "start",
+										}),
+								);
+							}}
+						>
+							<span>BEST WINDOW</span>
+							<strong>
+								{bestActivityWindow
+									? formatWindow(bestActivityWindow.time)
+									: current.best}
+							</strong>
+							<ChevronRight size={17} />
+						</button>
+					)}
 				</div>
 				<section className="forecast-section">
 					<div className="section-heading">
@@ -1048,6 +1367,7 @@ function RoutesView({ onBack }) {
 				onBack={onBack}
 			/>
 			<OpenRouteMap route={selectedRoute} />
+			{selectedRoute && <TrafficUpdates route={selectedRoute} />}
 			<RouteWeatherAlert route={selectedRoute} />
 			<section className="page-section">
 				<div className="section-heading">
@@ -1596,7 +1916,11 @@ function PersonalizeView({
 											? "◌"
 											: item === "Sports"
 												? "◆"
-												: "↗"}
+												: item === "School pickup"
+													? "⇢"
+													: item === "Surfing"
+														? "≈"
+														: "↗"}
 							</span>
 							{item}
 							{selectedActivities.includes(item) && (

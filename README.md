@@ -1,5 +1,15 @@
 # React + Vite
 
+<<<<<<< HEAD
+=======
+## Live traffic updates
+
+Traffic updates on the Routes screen use the TomTom Traffic Flow API. Copy
+`.env.example` to `.env` and set `VITE_TOMTOM_API_KEY` to enable them. Traffic
+is refreshed when the selected route changes, manually from the refresh button,
+and every five minutes while the screen is open.
+
+>>>>>>> master
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:

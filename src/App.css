@@ -239,6 +239,22 @@
 .insight-topline svg {
 	opacity: 0.55;
 }
+.suitability-score {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 4px 10px;
+	margin-top: 18px;
+}
+.suitability-score strong {
+	font:
+		600 16px Georgia,
+		serif;
+}
+.suitability-score span {
+	font-size: 11px;
+	color: #536a5e;
+}
 .insight-status {
 	font:
 		400 34px Georgia,
@@ -302,6 +318,68 @@
 	background: #fff;
 	border: 1px solid #e7e1d8;
 	border-radius: 7px;
+}
+.traffic-updates {
+	display: flex;
+	gap: 12px;
+	align-items: flex-start;
+	margin: 17px 0 0;
+	padding: 15px;
+	background: #fff;
+	border: 1px solid #e7e1d8;
+	border-radius: 7px;
+}
+.traffic-icon {
+	color: #537b72;
+	background: #e1efeb;
+	border-radius: 50%;
+	padding: 9px;
+	display: grid;
+	place-items: center;
+}
+.traffic-copy {
+	flex: 1;
+	min-width: 0;
+}
+.traffic-copy strong {
+	display: block;
+	font:
+		600 17px Georgia,
+		serif;
+	margin: 5px 0 2px;
+	color: #2c463b;
+}
+.traffic-copy p {
+	font-size: 11px;
+	color: #7d8b83;
+}
+.traffic-copy small {
+	display: block;
+	margin-top: 5px;
+	font-size: 10px;
+	color: #9aa49e;
+}
+.traffic-refresh {
+	border: 0;
+	background: transparent;
+	color: #7a8a81;
+	padding: 5px;
+	display: grid;
+	place-items: center;
+}
+.traffic-slowing {
+	border-color: #ead8b8;
+}
+.traffic-slowing .traffic-icon {
+	color: #a8783f;
+	background: #f7ecd8;
+}
+.traffic-heavy {
+	border-color: #ecd1c8;
+}
+.traffic-heavy .traffic-icon {
+	color: #c9614c;
+	background: #fae4db;
 }
 .alert-icon {
 	color: #c9614c;
