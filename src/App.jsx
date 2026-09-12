@@ -562,6 +562,9 @@ function TrafficUpdates({ route }) {
 
 function App() {
 	const [activeTab, setActiveTab] = useState("home");
+	const [profileName, setProfileName] = useState(
+		() => localStorage.getItem("mausam-profile-name") || "Ankit"
+	);
 	const [activity, setActivity] = useState(
 		() => localStorage.getItem("mausam-activity") || "Running",
 	);
@@ -582,6 +585,10 @@ function App() {
 	useEffect(
 		() => localStorage.setItem("mausam-activity", activity),
 		[activity],
+	);
+	useEffect(
+		() => localStorage.setItem("mausam-profile-name", profileName),
+		[profileName],
 	);
 	useEffect(() => {
 		localStorage.setItem(
@@ -806,15 +813,17 @@ function App() {
 				/>
 			);
 		if (activeTab === "personalize")
-			return (
-				<PersonalizeView
-					activity={activity}
-					setActivity={setActivity}
-					selectedActivities={selectedActivities}
-					toggleActivity={toggleActivity}
-					onBack={() => navigate("home")}
-				/>
-			);
+		return (
+			<PersonalizeView
+				profileName={profileName}
+				setProfileName={setProfileName}
+				activity={activity}
+				setActivity={setActivity}
+				selectedActivities={selectedActivities}
+				toggleActivity={toggleActivity}
+				onBack={() => navigate("home")}
+			/>
+		);
 		return (
 			<>
 				<header className="topbar">
@@ -829,8 +838,17 @@ function App() {
 						>
 							<Bell size={19} />
 						</button>
-						<button className="avatar" aria-label="Profile">
-							AK
+						<button
+							className="avatar"
+							aria-label="Profile"
+							onClick={() => navigate("personalize")}
+						>
+							{profileName
+								.split(" ")
+								.map((word) => word[0])
+								.join("")
+								.slice(0, 2)
+								.toUpperCase()}
 						</button>
 					</div>
 				</header>
@@ -1875,11 +1893,15 @@ function LocationsView({ location, onSelectLocation, onBack }) {
 	);
 }
 function PersonalizeView({
-	activity,
-	selectedActivities,
-	toggleActivity,
-	onBack,
+    profileName,
+    setProfileName,
+    activity,
+    selectedActivities,
+    toggleActivity,
+    onBack,
 }) {
+	const [isEditingName, setIsEditingName] = useState(false);
+	const [draftName, setDraftName] = useState(profileName);
 	return (
 		<>
 			<PageHeader
@@ -1889,9 +1911,70 @@ function PersonalizeView({
 			/>
 			<section className="page-section personalize-page">
 				<div className="profile-intro">
-					<div className="large-avatar">AK</div>
-					<div>
-						<h2>Good morning, Ankit</h2>
+					<div className="large-avatar">
+						{profileName
+							.split(" ")
+							.map((word) => word[0])
+							.join("")
+							.slice(0, 2)
+							.toUpperCase()}
+					</div>
+
+					<div className="profile-name-section">
+						{isEditingName ? (
+							<div className="profile-edit">
+								<input
+									value={draftName}
+									onChange={(event) =>
+										setDraftName(event.target.value)
+									}
+									autoFocus
+									aria-label="Profile name"
+									placeholder="Enter your name"
+								/>
+
+								<button
+									type="button"
+									onClick={() => {
+										const trimmedName = draftName.trim();
+
+										if (!trimmedName) return;
+
+										setProfileName(trimmedName);
+										setIsEditingName(false);
+									}}
+								>
+									Save
+								</button>
+
+								<button
+									type="button"
+									onClick={() => {
+										setDraftName(profileName);
+										setIsEditingName(false);
+									}}
+								>
+									Cancel
+								</button>
+							</div>
+						) : (
+							<div className="profile-name-row">
+								<h2>Good morning, {profileName}</h2>
+
+								<button
+									type="button"
+									className="edit-profile-button"
+									onClick={() => {
+										setDraftName(profileName);
+										setIsEditingName(true);
+									}}
+									aria-label="Edit profile name"
+								>
+									<Pencil size={14} />
+								</button>
+							</div>
+						)}
+
 						<p>Tell us what matters most to you.</p>
 					</div>
 				</div>
